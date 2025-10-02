@@ -8,91 +8,91 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram.constants import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# --- CONFIGURATION ---
-# Replace with your actual bot token from BotFather
+# --- CONFIGURATION (ဒီနေရာမှာ သင့်အချက်အလက်တွေဖြည့်ပါ) ---
+# BotFather ကရလာတဲ့ သင့်ရဲ့ Bot Token ကိုထည့်ပါ
 TELEGRAM_BOT_TOKEN = "7927660379:AAGtm-CvAunvvANaaYvzlmRVjjBgJcmEh58" 
-# Replace with the ID of the chat where predictions will be sent automatically
+# Bot က message တွေ အလိုအလျောက်ပంపမယ့် Chat ID ကိုထည့်ပါ
 TARGET_CHAT_ID = "-1003124904293" 
 # --- END CONFIGURATION ---
 
-# Set up logging to see errors
+# Error တွေကို ကြည့်ရှုနိုင်ရန် Logging ပြုလုပ်ခြင်း
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# This global variable will simulate the game's period/issue number
-# We initialize it based on the current date and a starting number
+# ဂိမ်းရဲ့ အကြိမ်ရေ (Period) ကို မှတ်သားရန်
 current_period = int(datetime.datetime.now().strftime('%Y%m%d001'))
 
 def generate_prediction():
     """
-    This function generates a random 'prediction'.
-    THIS IS NOT REAL AI. IT'S PURELY RANDOM FOR ENTERTAINMENT.
+    ဤ function သည် ကျပန်း 'ခန့်မှန်းချက်' တစ်ခုကို ဖန်တီးပေးသည်။
+    ၎င်းသည် AI အစစ်မဟုတ်ဘဲ ဖျော်ဖြေရေးအတွက်သာဖြစ်ပါသည်။
     """
     global current_period
     
-    # Determine the predicted number (0-9)
+    # ခန့်မှန်းဂဏန်း (0-9) ကို ကျပန်းရွေးခြင်း
     number = random.randint(0, 9)
     
-    # Determine the predicted size (Big/Small)
-    size = "Big" if number >= 5 else "Small"
+    # အကြီး/အသေး ခန့်မှန်းခြင်း
+    size_en = "Big" if number >= 5 else "Small"
+    size_mm = "အကြီး" if size_en == "Big" else "အသေး"
     
-    # Determine the predicted color based on common game rules
+    # အရောင်ခန့်မှန်းခြင်း
     if number in [1, 3, 7, 9]:
-        color = "Green 🟢"
+        color_mm = "အစိမ်း 🟢"
     elif number in [2, 4, 6, 8]:
-        color = "Red 🔴"
+        color_mm = "အနီ 🔴"
     elif number == 5:
-        color = "Green 🟢 + Violet 🟣"
+        color_mm = "အစိမ်း 🟢 + ခရမ်း 🟣"
     else:  # number == 0
-        color = "Red 🔴 + Violet 🟣"
+        color_mm = "အနီ 🔴 + ခရမ်း 🟣"
         
-    # Format the prediction message
+    # ပေးပို့မည့် message ကို မြန်မာလိုပြင်ဆင်ခြင်း
     prediction_text = (
-        f"🔮 **WinGo 30s Prediction** 🔮\n\n"
-        f"📅 **Period:** `{current_period}`\n"
+        f"🔮 **WinGo 30s ခန့်မှန်းချက်** 🔮\n\n"
+        f"📅 **အကြိမ်ရေ:** `{current_period}`\n"
         f"-----------------------------------\n"
-        f"💡 **Suggestion:** **{size}** | **{color}**\n"
-        f"🔢 **Lucky Number:** `{number}`\n"
+        f"💡 **အကြံပြုချက်:** **{size_mm}** | **{color_mm}**\n"
+        f"🔢 **ကံကောင်းစေမယ့်ဂဏန်း:** `{number}`\n"
         f"-----------------------------------\n\n"
-        f"🚨 *Disclaimer: For entertainment purposes only. Results are random and not guaranteed. Play responsibly.*"
+        f"🚨 *သတိပေးချက်: ဤခန့်မှန်းချက်သည် ဖျော်ဖြေရေးအတွက်သာဖြစ်သည်။ ရလဒ်များမှာ ကျပန်းဖြစ်ပြီး အာမ မခံပါ။ တာဝန်ယူမှုဖြင့်သာ ကစားပါ။*"
     )
     
-    # Increment the period for the next round
+    # နောက်တစ်ကြိမ်အတွက် အကြိမ်ရေကို တစ်ခုတိုးခြင်း
     current_period += 1
     
     return prediction_text
 
-# Command handler for /start and /help
+# /start နှင့် /help command များအတွက် handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a welcome message and instructions."""
+    """ကြိုဆိုခြင်းနှင့် လမ်းညွှန်ချက် message ပို့ခြင်း"""
     welcome_text = (
-        "👋 **Welcome to the WinGo Predictor Bot!**\n\n"
-        "This bot provides *for-fun* predictions for a 30-second lottery game.\n\n"
-        "**Commands:**\n"
-        "`/predict` - Get a new random prediction instantly.\n"
-        "`/help` - Show this message again.\n\n"
-        "**Automatic Predictions:**\n"
-        "The bot will automatically post a new prediction every 30 seconds to a designated chat.\n\n"
-        "🛑 **IMPORTANT DISCLAIMER** 🛑\n"
-        "This bot's predictions are **100% random and for entertainment only**. "
-        "Do NOT use this for financial decisions. Real lottery games are unpredictable."
+        "👋 **WinGo ခန့်မှန်းချက်ပေး Bot မှ ကြိုဆိုပါတယ်။**\n\n"
+        "ဤ Bot သည် စက္ကန့် ၃၀ ဂိမ်းအတွက် **ဖျော်ဖြေရေး** ခန့်မှန်းချက်များကို ထုတ်ပေးပါသည်။\n\n"
+        "**Commands များ:**\n"
+        "`/predict` - ခန့်မှန်းချက်အသစ်တစ်ခု ချက်ချင်းရယူရန်။\n"
+        "`/help` - ဤလမ်းညွှန်ကို ထပ်မံကြည့်ရှုရန်။\n\n"
+        "**အလိုအလျောက် ခန့်မှန်းချက်များ:**\n"
+        "Bot သည် သတ်မှတ်ထားသော chat သို့ စက္ကန့် ၃၀ တိုင်း ခန့်မှန်းချက်အသစ်များ အလိုအလျောက် ပို့ပေးပါမည်။\n\n"
+        "🛑 **အရေးကြီးသတိပေးချက်** 🛑\n"
+        "ဤ Bot ၏ ခန့်မှန်းချက်များသည် **၁၀၀% ကျပန်းဖြစ်ပြီး ဖျော်ဖြေရေးအတွက်သာ** ဖြစ်သည်။ "
+        "တကယ့်ငွေကြေးဖြင့် လောင်းကစားရန် လုံးဝအသုံးမပြုပါနှင့်။"
     )
     await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN)
 
-# Command handler for /predict
+# /predict command အတွက် handler
 async def predict_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a single, on-demand prediction."""
-    logger.info(f"Received /predict command from user {update.effective_user.id}")
+    """တောင်းဆိုချိန်တွင် ခန့်မှန်းချက်တစ်ခုပို့ပေးခြင်း"""
+    logger.info(f"User {update.effective_user.id} ထံမှ /predict command ရရှိသည်")
     prediction = generate_prediction()
     await update.message.reply_text(prediction, parse_mode=ParseMode.MARKDOWN)
 
-# Function to be called by the scheduler
+# အချိန်ဇယား (Scheduler) မှ ခေါ်သုံးမည့် function
 async def send_scheduled_prediction(bot: Bot):
-    """Generates and sends a prediction to the target chat."""
-    logger.info(f"Sending scheduled prediction to chat ID {TARGET_CHAT_ID}")
+    """သတ်မှတ်ထားသော chat သို့ အလိုအလျောက် message ပို့ခြင်း"""
+    logger.info(f"Chat ID {TARGET_CHAT_ID} သို့ အလိုအလျောက် message ပို့နေသည်")
     prediction = generate_prediction()
     try:
         await bot.send_message(
@@ -101,26 +101,25 @@ async def send_scheduled_prediction(bot: Bot):
             parse_mode=ParseMode.MARKDOWN
         )
     except Exception as e:
-        logger.error(f"Failed to send message to {TARGET_CHAT_ID}: {e}")
-        logger.warning("Please ensure the TARGET_CHAT_ID is correct and the bot is a member of the chat.")
+        logger.error(f"Chat ID {TARGET_CHAT_ID} သို့ message ပို့ရာတွင် error ဖြစ်ပွားနေသည်: {e}")
 
 async def main():
-    """Main function to set up and run the bot."""
+    """Bot ကို စတင်လည်ပတ်စေရန် main function"""
     if TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" or TARGET_CHAT_ID == "YOUR_TARGET_CHAT_ID":
-        logger.error("Please fill in your TELEGRAM_BOT_TOKEN and TARGET_CHAT_ID in the script.")
+        logger.error("ကျေးဇူးပြု၍ သင့် TELEGRAM_BOT_TOKEN နှင့် TARGET_CHAT_ID ကို code ထဲတွင် ဖြည့်စွက်ပါ")
         return
 
-    # Create the bot application
+    # Bot application ကို တည်ဆောက်ခြင်း
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     
-    # Add command handlers
+    # Command handlers များကို ထည့်သွင်းခြင်း
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", start))
     application.add_handler(CommandHandler("predict", predict_now))
 
-    # --- Scheduler Setup ---
-    # This will run the 'send_scheduled_prediction' function every 30 seconds
-    scheduler = AsyncIOScheduler()
+    # --- Scheduler ကိုတည်ဆောက်ခြင်း ---
+    # စက္ကန့် ၃၀ တိုင်း 'send_scheduled_prediction' function ကို ခေါ်ခိုင်းပါမည်
+    scheduler = AsyncIOScheduler(timezone="Asia/Yangon")
     scheduler.add_job(
         send_scheduled_prediction, 
         'interval', 
@@ -129,18 +128,11 @@ async def main():
     )
     scheduler.start()
     
-    logger.info("Bot started and scheduler is running...")
+    logger.info("Bot စတင်လည်ပတ်နေပြီးဖြစ်သည်...")
     
-    # Run the bot until you press Ctrl-C
-    try:
-        await application.run_polling()
-    except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown()
+    # Bot ကို Ctrl-C မနှိပ်မချင်း အလုပ်လုပ်စေခြင်း
+    await application.run_polling()
     
 if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except RuntimeError:
-        # This handles a common issue on Windows when stopping the script
-        pass
+    asyncio.run(main())
 
