@@ -1,101 +1,146 @@
-# lottery_bot.py
-import asyncio, sqlite3, io, os
-import pandas as pd
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import logging
+import random
+import asyncio
+import datetime
 
-BOT_TOKEN = "7927660379:AAEsm1s4sdi60OozbA-QiJDEJJvw5d0a9_M"   # BotFather က ယူထားတဲ့ token
-TARGET_CHAT_ID = -1003124904293                   # Group / User chat_id ထည့်လို့ရတယ်
-PRED_INTERVAL = 30
-SUM_THRESHOLD = 150
-DB_PATH = "lottery.sqlite"
+from telegram import Bot, Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.constants import ParseMode
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS draws (
-        id INTEGER PRIMARY KEY,
-        draw_time TEXT,
-        n1 INT, n2 INT, n3 INT, n4 INT, n5 INT, n6 INT
-    )""")
-    conn.commit()
-    conn.close()
+# --- CONFIGURATION ---
+# Replace with your actual bot token from BotFather
+TELEGRAM_BOT_TOKEN = "7927660379:AAGtm-CvAunvvANaaYvzlmRVjjBgJcmEh58" 
+# Replace with the ID of the chat where predictions will be sent automatically
+TARGET_CHAT_ID = "-1003138310803" 
+# --- END CONFIGURATION ---
 
-def insert_csv(df):
-    conn = sqlite3.connect(DB_PATH)
-    df.to_sql("draws", conn, if_exists="append", index=False)
-    conn.commit()
-    conn.close()
+# Set up logging to see errors
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-def get_history():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql("SELECT * FROM draws", conn)
-    conn.close()
-    return df
+# This global variable will simulate the game's period/issue number
+# We initialize it based on the current date and a starting number
+current_period = int(datetime.datetime.now().strftime('%Y%m%d001'))
 
-def heuristic_predict(df):
-    if df.empty:
-        import random
-        return "Random => " + ("Big" if random.random() > 0.5 else "Small")
-    s = df[["n1","n2","n3","n4","n5","n6"]].sum(axis=1)
-    label = "Big" if s.iloc[-1] > SUM_THRESHOLD else "Small"
-    return f"{label} (sum={s.iloc[-1]})"
+def generate_prediction():
+    """
+    This function generates a random 'prediction'.
+    THIS IS NOT REAL AI. IT'S PURELY RANDOM FOR ENTERTAINMENT.
+    """
+    global current_period
+    
+    # Determine the predicted number (0-9)
+    number = random.randint(0, 9)
+    
+    # Determine the predicted size (Big/Small)
+    size = "Big" if number >= 5 else "Small"
+    
+    # Determine the predicted color based on common game rules
+    if number in [1, 3, 7, 9]:
+        color = "Green 🟢"
+    elif number in [2, 4, 6, 8]:
+        color = "Red 🔴"
+    elif number == 5:
+        color = "Green 🟢 + Violet 🟣"
+    else:  # number == 0
+        color = "Red 🔴 + Violet 🟣"
+        
+    # Format the prediction message
+    prediction_text = (
+        f"🔮 **WinGo 30s Prediction** 🔮\n\n"
+        f"📅 **Period:** `{current_period}`\n"
+        f"-----------------------------------\n"
+        f"💡 **Suggestion:** **{size}** | **{color}**\n"
+        f"🔢 **Lucky Number:** `{number}`\n"
+        f"-----------------------------------\n\n"
+        f"🚨 *Disclaimer: For entertainment purposes only. Results are random and not guaranteed. Play responsibly.*"
+    )
+    
+    # Increment the period for the next round
+    current_period += 1
+    
+    return prediction_text
 
+# Command handler for /start and /help
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Lottery Predictor Bot\n/predict ခန့်မှန်းချက်\n/upload CSV upload\n/stats အချိုးအစား")
+    """Sends a welcome message and instructions."""
+    welcome_text = (
+        "👋 **Welcome to the WinGo Predictor Bot!**\n\n"
+        "This bot provides *for-fun* predictions for a 30-second lottery game.\n\n"
+        "**Commands:**\n"
+        "`/predict` - Get a new random prediction instantly.\n"
+        "`/help` - Show this message again.\n\n"
+        "**Automatic Predictions:**\n"
+        "The bot will automatically post a new prediction every 30 seconds to a designated chat.\n\n"
+        "🛑 **IMPORTANT DISCLAIMER** 🛑\n"
+        "This bot's predictions are **100% random and for entertainment only**. "
+        "Do NOT use this for financial decisions. Real lottery games are unpredictable."
+    )
+    await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN)
 
-async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    df = get_history()
-    result = heuristic_predict(df)
-    await update.message.reply_text(f"Prediction: {result}")
+# Command handler for /predict
+async def predict_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends a single, on-demand prediction."""
+    logger.info(f"Received /predict command from user {update.effective_user.id}")
+    prediction = generate_prediction()
+    await update.message.reply_text(prediction, parse_mode=ParseMode.MARKDOWN)
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    df = get_history()
-    if df.empty:
-        await update.message.reply_text("မရှိသေးပါ")
+# Function to be called by the scheduler
+async def send_scheduled_prediction(bot: Bot):
+    """Generates and sends a prediction to the target chat."""
+    logger.info(f"Sending scheduled prediction to chat ID {TARGET_CHAT_ID}")
+    prediction = generate_prediction()
+    try:
+        await bot.send_message(
+            chat_id=TARGET_CHAT_ID,
+            text=prediction,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logger.error(f"Failed to send message to {TARGET_CHAT_ID}: {e}")
+        logger.warning("Please ensure the TARGET_CHAT_ID is correct and the bot is a member of the chat.")
+
+async def main():
+    """Main function to set up and run the bot."""
+    if TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" or TARGET_CHAT_ID == "YOUR_TARGET_CHAT_ID":
+        logger.error("Please fill in your TELEGRAM_BOT_TOKEN and TARGET_CHAT_ID in the script.")
         return
-    s = df[["n1","n2","n3","n4","n5","n6"]].sum(axis=1)
-    big = (s > SUM_THRESHOLD).sum()
-    small = (s <= SUM_THRESHOLD).sum()
-    await update.message.reply_text(f"Total: {len(df)}\nBig: {big}\nSmall: {small}")
 
-async def upload_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc = update.message.document
-    f = await doc.get_file()
-    bio = io.BytesIO()
-    await f.download(out=bio)
-    bio.seek(0)
-    df = pd.read_csv(bio)
-    insert_csv(df)
-    await update.message.reply_text(f"CSV {len(df)} rows ထည့်ပြီးပါပြီ")
+    # Create the bot application
+    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    
+    # Add command handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", start))
+    application.add_handler(CommandHandler("predict", predict_now))
 
-async def periodic(app):
-    await asyncio.sleep(2)
-    while True:
-        df = get_history()
-        result = heuristic_predict(df)
-        if TARGET_CHAT_ID:
-            await app.bot.send_message(chat_id=int(TARGET_CHAT_ID), text=f"Periodic: {result}")
-        else:
-            print("Periodic:", result)
-        await asyncio.sleep(PRED_INTERVAL)
+    # --- Scheduler Setup ---
+    # This will run the 'send_scheduled_prediction' function every 30 seconds
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        send_scheduled_prediction, 
+        'interval', 
+        seconds=30, 
+        args=[application.bot]
+    )
+    scheduler.start()
+    
+    logger.info("Bot started and scheduler is running...")
+    
+    # Run the bot until you press Ctrl-C
+    try:
+        await application.run_polling()
+    except (KeyboardInterrupt, SystemExit):
+        scheduler.shutdown()
+    
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except RuntimeError:
+        # This handles a common issue on Windows when stopping the script
+        pass
 
-def main():
-    init_db()
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("predict", predict))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(MessageHandler(filters.Document.FileExtension("csv"), upload_file))
-
-    async def run():
-        asyncio.create_task(periodic(app))
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling()
-        await app.idle()
-
-    asyncio.run(run())
-
-if __name__ == "__main__":
-    main()
