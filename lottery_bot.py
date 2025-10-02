@@ -12,7 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # Replace with your actual bot token from BotFather
 TELEGRAM_BOT_TOKEN = "7927660379:AAGtm-CvAunvvANaaYvzlmRVjjBgJcmEh58" 
 # Replace with the ID of the chat where predictions will be sent automatically
-TARGET_CHAT_ID = "-1003138310803" 
+TARGET_CHAT_ID = "-1003124904293" 
 # --- END CONFIGURATION ---
 
 # Set up logging to see errors
