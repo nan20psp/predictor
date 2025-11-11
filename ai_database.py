@@ -48,7 +48,6 @@ def get_all_groups():
 def add_result(issue_id, result_value):
     """Wingo Result အသစ် ထည့်ပါ။ (ဥပမာ: "SMALL")"""
     if not client: return
-    # ID (2025111100010660) နဲ့ ရှာပြီး မရှိမှ ထည့်ပါ
     check = wingo_results_collection.find_one({"_id": issue_id})
     if not check:
         wingo_results_collection.insert_one({
@@ -64,7 +63,6 @@ def get_last_results(count=10):
     """ခန့်မှန်း ချက် တွက်ရန် နောက်ဆုံး Result (10) ခုကို ယူပါ။"""
     if not client: return []
     cursor = wingo_results_collection.find({}, {"result": 1, "_id": 0}).sort("_id", -1).limit(count)
-    # List ကို အဟောင်းကနေ အသစ် ပြန်စီပါ
     results = [doc["result"] for doc in cursor]
     return results[::-1] # Reverse the list [oldest...newest]
 
