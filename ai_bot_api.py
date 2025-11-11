@@ -1,16 +1,12 @@
-# ai_bot_selenium.py
+# ai_bot_api.py
 
 import asyncio, os, re, random, json
 from datetime import datetime
 from telegram import Update, Bot, ChatMember
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# (အသစ်) Selenium imports
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+# (အသစ်) Selenium မလိုတော့ပါ။ ရိုးရိုး requests ပဲ လိုပါမယ်။
+import requests 
 
 # Database module (AI Bot အတွက်) ကို import လုပ်ပါ
 try:
@@ -34,31 +30,14 @@ except Exception as e:
     exit()
 
 # --- Global Settings ---
-DATA_URL = "https://www.bigwingame.bet/#/home/index" # .json မဟုတ်တော့ဘဲ Website ပင်မကို ဝင်ရပါမယ်
+# (ပြင်ဆင်ပြီး) ကိုကို ရှာတွေ့ထားတဲ့ API Link အသစ်
+DATA_API_URL = "https://api.bigwinqaz.com/api/webapi/GetNoaverageEmerdList" 
+API_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+    "Referer": "https://www.bigwingame.bet/" 
+}
+# --- (ပြီး) ---
 
-# --- Selenium Setup (Render/Server အတွက်) ---
-def setup_selenium_driver():
-    """Render ပေါ်မှာ Chrome Browser run ဖို့ ပြင်ဆင်ပါ။"""
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument("--headless") # Browser မမြင်ရဘဲ run မယ်
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-    
-    # (Render မှာ ChromeDriver ကို အလိုအလျောက် install လုပ်ဖို့)
-    from webdriver_manager.chrome import ChromeDriverManager
-    # (Service object အသစ်ကို သုံးမှ Render မှာ အဆင်ပြေပါမယ်)
-    from selenium.webdriver.chrome.service import Service as ChromeService
-    
-    try:
-        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
-        return driver
-    except Exception as e:
-        print(f"!!! CRITICAL: Selenium Driver စတင်လို့ မရပါ !!!")
-        print(f"Error: {e}")
-        print("Render မှာ Chrome Buildpack ထည့်သွင်းပြီးပြီလား စစ်ဆေးပါ။")
-        return None
 
 # --- Group Management (မပြောင်းပါ) ---
 async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -102,59 +81,54 @@ def get_prediction(last_results):
     else:
         return "PREDICT: 🔴 SMALL 🔴"
 
-# --- (အဓိက) Timer Job (Selenium [Response 76] ဖြင့်) ---
+# --- (အဓိက) Timer Job (Requests ဖြင့်) ---
 async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
-    print(f"Running Selenium Wingo Job... (Time: {datetime.now()})")
+    print(f"Running API Request Job... (Time: {datetime.now()})")
     
-    driver = None
+    latest_issue_id = ""
+    latest_result_val = ""
+    latest_result_num = ""
+    
+    # (၁) Data လှမ်းယူပါ (Selenium မလိုတော့ပါ)
     try:
-        # (၁) Selenium Browser ကို ဖွင့်ပါ
-        driver = setup_selenium_driver()
-        if not driver:
-            raise Exception("Selenium Driver ဖွင့်လို့မရပါ။")
+        response = requests.get(DATA_API_URL, headers=API_HEADERS, timeout=10)
+        if response.status_code != 200:
+            print(f"Error fetching API: Status {response.status_code}")
+            return
             
-        driver.get(DATA_URL)
+        data = response.json()
         
-        # (TODO: ကိုကို... Website က "1 MIN WINGO" tab ကို အရင် နှိပ်ရရင် အဲ့ဒီ code ထပ်ထည့်ရပါမယ်)
-        # ဥပမာ: driver.find_element(By.XPATH, "//*[contains(text(), '1 Min Wingo')]").click()
+        # (TODO: ကိုကို... ဒီ JSON format က အရေးကြီးဆုံးပါ)
+        # ဘေဘီက `data.json` ကို မှန်းရေးထားတာပါ၊ ကိုကို့ API link အသစ်နဲ့ မှန်ချင်မှ မှန်ပါမယ်
         
-        # (၂) Data တွေကို Browser ကနေ ခိုးယူ (Scrape) ပါ
+        # ဥပမာ API က ဒီလို ပုံစံလာခဲ့ရင်:
+        # { "data": [ {"issue": "20251111002", "result": "Small", "number": "3"},
+        #            {"issue": "20251111001", "result": "Big", "number": "8"} ] }
         
-        # (TODO: ကိုကို... ဒီ `CSS_SELECTOR` က အရေးကြီးဆုံးပါ။)
-        # ဘေဘီက ပုံ ကို ကြည့်ပြီး မှန်းရေးထားတာပါ)
-        # ဥပမာ: HTML က <div class="issue-id">2025111100010660</div>
-        # ဥပမာ: HTML က <div class="result-value">SMALL</div>
+        if "data" not in data or not data["data"]:
+            raise Exception("API Response မှာ 'data' list မတွေ့ပါ။")
+            
+        latest_result_obj = data["data"][0] # List ထဲက ပထမဆုံး (နောက်ဆုံး) result ကို ယူ
         
-        # (၁၀) စက္ကန့် အထိ စောင့်
-        wait = WebDriverWait(driver, 10) 
-        
-        # (ဒီ Selector တွေကို F12 (Inspect) နဲ့ ရှာပြီး အမှန် ပြန်ထည့်ပေးပါ)
-        latest_issue_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.issue-id")))
-        latest_result_element = driver.find_element(By.CSS_SELECTOR, "div.result-value")
-        
-        issue_id = latest_issue_element.text
-        result_value = latest_result_element.text
-        
-        # (Browser ကို ချက်ချင်း ပိတ်ပါ)
-        driver.quit()
+        latest_issue_id = latest_result_obj.get("issue")
+        latest_result_val = latest_result_obj.get("result", "small") # "Small" or "Big"
+        latest_result_num = latest_result_obj.get("number", "?") # "5" or "8"
 
-        if not issue_id or not result_value:
-            raise Exception("Scraping လုပ်လို့ရတဲ့ Data က အလွတ် ဖြစ်နေပါတယ်။ (Selector မှားနိုင်)")
+        if not latest_issue_id:
+             raise Exception("API Response ထဲမှာ 'issue' (ID) မတွေ့ပါ။")
 
-        # (၃) DB ထဲ သိမ်းပါ
-        db.add_result(issue_id, result_value)
+        # (၂) DB ထဲ သိမ်းပါ
+        db.add_result(latest_issue_id, latest_result_val, latest_result_num)
         
     except Exception as e:
-        print(f"Selenium Scraping failed: {e}")
-        if driver:
-            driver.quit() # Error တက်ရင် Browser ကို ပိတ်ပါ
+        print(f"API Request failed: {e}")
         return # Error တက်ရင် ခန့်မှန်းချက် မပို့တော့ဘူး
 
-    # (၄) ခန့်မှန်းချက် တွက်ပါ
+    # (၃) ခန့်မှန်းချက် တွက်ပါ
     last_results = db.get_last_results(10) 
     prediction = get_prediction(last_results)
     
-    # (၅) Group တွေအားလုံးကို Broadcast ပို့ပါ
+    # (၄) Group တွေအားလုံးကို Broadcast ပို့ပါ
     active_pattern = db.get_active_pattern()
     active_groups = db.get_all_groups()
     
@@ -165,7 +139,7 @@ async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
     broadcast_msg = (
         f"--- **1 MIN WINGO** ---\n"
         f"Pattern Set: **{active_pattern}**\n"
-        f"Last Result: `{issue_id}` -> **{result_value.upper()}**\n\n"
+        f"Last Result: `{latest_issue_id}` -> **{latest_result_val.upper()} ({latest_result_num})**\n\n"
         f"**NEXT RESULT ♻️ {prediction}**"
     )
     
@@ -225,7 +199,7 @@ async def pattern_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Main Function ---
 
 def main():
-    print("🤖 AI Pattern Bot (Selenium Mode) စတင်နေပါသည်...")
+    print("🤖 AI Pattern Bot (API Mode) စတင်နေပါသည်...")
 
     application = Application.builder().token(AI_BOT_TOKEN).build() 
 
