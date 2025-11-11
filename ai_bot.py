@@ -1,13 +1,16 @@
-# ai_bot.py
+# ai_bot_selenium.py
 
 import asyncio, os, re, random, json
 from datetime import datetime
-from telegram import Update, Bot
+from telegram import Update, Bot, ChatMember
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-# (အသစ်) Cloudflare ကို ကျော်ဖြတ်ဖို့ `curl_cffi` ကို သုံးပါမယ်
-from curl_cffi.requests import Session
+# (အသစ်) Selenium imports
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 # Database module (AI Bot အတွက်) ကို import လုပ်ပါ
 try:
@@ -18,13 +21,8 @@ except ImportError:
 
 # --- Environment Variables (AI Bot အတွက်) ---
 try:
-    # (BotFather မှာ Bot အသစ်တောင်းပြီး Token အသစ် ထည့်ပါ)
     AI_BOT_TOKEN = os.environ.get("AI_BOT_TOKEN") 
-    
-    # (ကိုကို့ရဲ့ Admin ID)
     OWNER_ID = int(os.environ.get("OWNER_ID"))
-    
-    # (DB URL ကတော့ Bot တွေအားလုံး အတူတူ သုံးလို့ရပါတယ်)
     MONGO_URL = os.environ.get("MONGO_URL") 
     
     if not all([AI_BOT_TOKEN, OWNER_ID, MONGO_URL]):
@@ -35,110 +33,128 @@ except Exception as e:
     print(f"Error: Environment variables များ load လုပ်ရာတွင် အမှားဖြစ်နေပါသည်: {e}")
     exit()
 
-# --- Global Settings & Scraper Session ---
-DATA_URL = "https://www.bigwingame.bet/data.json" #
-scraper_session = Session()
-scraper_session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-    "Referer": "https://www.bigwingame.bet/"
-})
-scraper_session.impersonate = "chrome110" # Cloudflare ကို ကျော်ဖြတ်ရန်
+# --- Global Settings ---
+DATA_URL = "https://www.bigwingame.bet/#/home/index" # .json မဟုတ်တော့ဘဲ Website ပင်မကို ဝင်ရပါမယ်
 
-# --- Group Management Handlers ---
+# --- Selenium Setup (Render/Server အတွက်) ---
+def setup_selenium_driver():
+    """Render ပေါ်မှာ Chrome Browser run ဖို့ ပြင်ဆင်ပါ။"""
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument("--headless") # Browser မမြင်ရဘဲ run မယ်
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+    
+    # (Render မှာ ChromeDriver ကို အလိုအလျောက် install လုပ်ဖို့)
+    from webdriver_manager.chrome import ChromeDriverManager
+    # (Service object အသစ်ကို သုံးမှ Render မှာ အဆင်ပြေပါမယ်)
+    from selenium.webdriver.chrome.service import Service as ChromeService
+    
+    try:
+        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
+        return driver
+    except Exception as e:
+        print(f"!!! CRITICAL: Selenium Driver စတင်လို့ မရပါ !!!")
+        print(f"Error: {e}")
+        print("Render မှာ Chrome Buildpack ထည့်သွင်းပြီးပြီလား စစ်ဆေးပါ။")
+        return None
 
+# --- Group Management (မပြောင်းပါ) ---
 async def on_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bot က Group အသစ်ထဲ ဝင်လာရင် DB ထဲ မှတ်ထားပါ"""
     me = await context.bot.get_me()
     chat = update.effective_chat
-    
     if chat.type in ["group", "supergroup"]:
         for new_member in update.message.new_chat_members:
             if new_member.id == me.id:
                 print(f"AI Bot joined a new group: {chat.title} (ID: {chat.id})")
                 db.add_group(chat.id, chat.title)
                 try:
-                    await context.bot.send_message(
-                        chat_id=chat.id,
-                        text=f"👋 မင်္ဂလာပါ! {me.first_name} ပါရှင့်။\n"
-                             f"ဒီ Group မှာ Wingo ခန့်မှန်းချက် (Estimate) တွေကို (၁) မိနစ် တစ်ခါ ပို့ပေးပါမယ်။"
-                    )
-                except Exception as e:
-                    print(f"Error sending welcome message to group: {e}")
+                    await context.bot.send_message(chat_id=chat.id, text=f"👋 မင်္ဂလာပါ! {me.first_name} ပါရှင့်။\nဒီ Group မှာ Wingo ခန့်မှန်းချက် တွေ ပို့ပေးပါမယ်။")
+                except: pass
 
 async def on_left_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bot က Group ကနေ ထွက်သွားရင် DB ကနေ ဖြုတ်ပါ"""
     me = await context.bot.get_me()
     chat = update.effective_chat
-    
     if chat.type in ["group", "supergroup"]:
         if update.message.left_chat_member.id == me.id:
             print(f"AI Bot left/was kicked from group: (ID: {chat.id})")
             db.remove_group(chat.id)
 
-# --- (အဓိက) Prediction Logic ---
-
+# --- (အဓိက) Prediction Logic (မပြောင်းပါ) ---
 def get_prediction(last_results):
-    """Data အဟောင်းတွေကို ကြည့်ပြီး "AI-Estimate" လုပ်မယ့်နေရာ"""
     if len(last_results) < 4:
-        return "⏳ Data စုဆောင်းနေပါသည်။" # Data မပြည့်သေး
+        return "⏳ Data စုဆောင်းနေပါသည်။" 
 
-    active_pattern = db.get_active_pattern() # 1 or 2
-    
-    # နောက်ဆုံး 4 ခုကို ယူ
+    active_pattern = db.get_active_pattern() 
     last_4 = last_results[-4:]
     
-    # --- (Pattern 1: 3-in-a-row) ---
     if active_pattern == 1:
-        if last_4[-3:] == ["small", "small", "small"]:
-            return "PREDICT: 🟢 BIG 🟢"
-        if last_4[-3:] == ["big", "big", "big"]:
-            return "PREDICT: 🔴 SMALL 🔴"
+        if last_4[-3:] == ["small", "small", "small"]: return "PREDICT: 🟢 BIG 🟢"
+        if last_4[-3:] == ["big", "big", "big"]: return "PREDICT: 🔴 SMALL 🔴"
             
-    # --- (Pattern 2: Alternating) ---
     elif active_pattern == 2:
-        if last_4 == ["small", "big", "small", "big"]:
-            return "PREDICT: 🔴 SMALL 🔴"
-        if last_4 == ["big", "small", "big", "small"]:
-            return "PREDICT: 🟢 BIG 🟢"
+        if last_4 == ["small", "big", "small", "big"]: return "PREDICT: 🔴 SMALL 🔴"
+        if last_4 == ["big", "small", "big", "small"]: return "PREDICT: 🟢 BIG 🟢"
             
-    # Pattern 1 & 2 မမိရင်၊ နောက်ဆုံးထွက်တာကို ပြောင်းပြန်ခန့်မှန်း
     if last_results[-1] == "small":
         return "PREDICT: 🟢 BIG 🟢"
     else:
         return "PREDICT: 🔴 SMALL 🔴"
 
-# --- (အဓိက) Timer Job (1 MIN WINGO) ---
-
+# --- (အဓိက) Timer Job (Selenium [Response 76] ဖြင့်) ---
 async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
-    """(၁) မိနစ် တစ်ခါ Data လှမ်းယူ၊ ခန့်မှန်း၊ Broadcast ပို့ရန်"""
+    print(f"Running Selenium Wingo Job... (Time: {datetime.now()})")
     
-    # (၁) Data လှမ်းယူပါ
+    driver = None
     try:
-        response = scraper_session.get(DATA_URL, timeout=10) # 10 seconds timeout
-        if response.status_code != 200:
-            print(f"Error fetching data.json: Status {response.status_code}")
-            return
+        # (၁) Selenium Browser ကို ဖွင့်ပါ
+        driver = setup_selenium_driver()
+        if not driver:
+            raise Exception("Selenium Driver ဖွင့်လို့မရပါ။")
             
-        data = response.json()
+        driver.get(DATA_URL)
         
-        # (TODO: ကိုကို... data.json ရဲ့ JSON format အမှန်ကို ဒီမှာ ပြင်ပေးဖို့ လိုပါတယ်)
-        # (ဘေဘီက ပုံ ကို ကြည့်ပြီး ခန့်မှန်းရေးထားတာပါ)
-        latest_result = data.get("latest_issue", {})
-        issue_id = latest_result.get("issue_id", "2025111100010660") #
-        result_value = latest_result.get("result", "small") #
+        # (TODO: ကိုကို... Website က "1 MIN WINGO" tab ကို အရင် နှိပ်ရရင် အဲ့ဒီ code ထပ်ထည့်ရပါမယ်)
+        # ဥပမာ: driver.find_element(By.XPATH, "//*[contains(text(), '1 Min Wingo')]").click()
         
-        # (၂) DB ထဲ သိမ်းပါ
+        # (၂) Data တွေကို Browser ကနေ ခိုးယူ (Scrape) ပါ
+        
+        # (TODO: ကိုကို... ဒီ `CSS_SELECTOR` က အရေးကြီးဆုံးပါ။)
+        # ဘေဘီက ပုံ ကို ကြည့်ပြီး မှန်းရေးထားတာပါ)
+        # ဥပမာ: HTML က <div class="issue-id">2025111100010660</div>
+        # ဥပမာ: HTML က <div class="result-value">SMALL</div>
+        
+        # (၁၀) စက္ကန့် အထိ စောင့်
+        wait = WebDriverWait(driver, 10) 
+        
+        # (ဒီ Selector တွေကို F12 (Inspect) နဲ့ ရှာပြီး အမှန် ပြန်ထည့်ပေးပါ)
+        latest_issue_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.issue-id")))
+        latest_result_element = driver.find_element(By.CSS_SELECTOR, "div.result-value")
+        
+        issue_id = latest_issue_element.text
+        result_value = latest_result_element.text
+        
+        # (Browser ကို ချက်ချင်း ပိတ်ပါ)
+        driver.quit()
+
+        if not issue_id or not result_value:
+            raise Exception("Scraping လုပ်လို့ရတဲ့ Data က အလွတ် ဖြစ်နေပါတယ်။ (Selector မှားနိုင်)")
+
+        # (၃) DB ထဲ သိမ်းပါ
         db.add_result(issue_id, result_value)
         
     except Exception as e:
-        print(f"Scraping failed: {e}")
+        print(f"Selenium Scraping failed: {e}")
+        if driver:
+            driver.quit() # Error တက်ရင် Browser ကို ပိတ်ပါ
         return # Error တက်ရင် ခန့်မှန်းချက် မပို့တော့ဘူး
 
-    # (၃) ခန့်မှန်းချက် တွက်ပါ
-    last_results = db.get_last_results(10) # နောက်ဆုံး (၁၀) ခု ယူ
+    # (၄) ခန့်မှန်းချက် တွက်ပါ
+    last_results = db.get_last_results(10) 
     prediction = get_prediction(last_results)
     
-    # (၄) Group တွေအားလုံးကို Broadcast ပို့ပါ
+    # (၅) Group တွေအားလုံးကို Broadcast ပို့ပါ
     active_pattern = db.get_active_pattern()
     active_groups = db.get_all_groups()
     
@@ -149,7 +165,7 @@ async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
     broadcast_msg = (
         f"--- **1 MIN WINGO** ---\n"
         f"Pattern Set: **{active_pattern}**\n"
-        f"Next Issue: **??????**\n\n"
+        f"Last Result: `{issue_id}` -> **{result_value.upper()}**\n\n"
         f"**NEXT RESULT ♻️ {prediction}**"
     )
     
@@ -160,16 +176,15 @@ async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
                 text=broadcast_msg,
                 parse_mode="Markdown"
             )
-            await asyncio.sleep(0.1) # Bot မပိတ်မိအောင် ခဏနား
+            await asyncio.sleep(0.1)
         except Exception as e:
             print(f"Failed to broadcast to group {group_id}: {e}")
             if "forbidden" in str(e).lower():
-                db.remove_group(group_id) # Bot ကို ကန်ထုတ်ခံရရင် DB က ဖြုတ်
+                db.remove_group(group_id)
 
-# --- Admin Commands ---
+# --- Admin Commands (မပြောင်းပါ) ---
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bot ကိုစဖွင့်ရင်"""
     await update.message.reply_text(
         "👋 **AI Pattern Bot**\n\n"
         "Game data များကို (၁) မိနစ် တစ်ခါ ခန့်မှန်း ချက် ပို့ပေးပါမည်။\n\n"
@@ -179,7 +194,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def add_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bot က ခန့်မှန်းချက် ပို့ပေးရမယ့် Group ကို သတ်မှတ်ပါ"""
     chat = update.effective_chat
     user_id = update.effective_user.id
 
@@ -187,7 +201,6 @@ async def add_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ ဤ command ကို Group တွေထဲမှာပဲ သုံးလို့ရပါတယ်ရှင့်။")
         return
         
-    # (Group Admin (ဒါမှမဟုတ်) Owner ဖြစ်မှ ဒီ command သုံးခွင့်ပြုပါ)
     member = await context.bot.get_chat_member(chat.id, user_id)
     if user_id == OWNER_ID or member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
         db.add_group(chat.id, chat.title)
@@ -196,7 +209,6 @@ async def add_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ ဤ command ကို Group Admin များသာ အသုံးပြုနိုင်ပါသည်။")
 
 async def pattern_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """(Owner Only) Pattern 1/2 ပြောင်းရန်"""
     if update.effective_user.id != OWNER_ID:
         await update.message.reply_text("❌ ဤ command ကို Owner သာ သုံးနိုင်ပါသည်။")
         return
@@ -213,7 +225,7 @@ async def pattern_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Main Function ---
 
 def main():
-    print("🤖 AI Pattern Bot စတင်နေပါသည်...")
+    print("🤖 AI Pattern Bot (Selenium Mode) စတင်နေပါသည်...")
 
     application = Application.builder().token(AI_BOT_TOKEN).build() 
 
