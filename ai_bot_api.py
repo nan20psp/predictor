@@ -79,6 +79,8 @@ def get_prediction(last_results):
 
 # --- (အဓိက) Timer Job (Requests ဖြင့်) ---
 async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
+    """(၁) မိနစ် တစ်ခါ Data လှမ်းယူ၊ ခန့်မှန်း၊ Broadcast ပို့ရန်"""
+    
     print(f"Running API Request Job... (Time: {datetime.now()})")
     
     latest_issue_id = ""
@@ -87,14 +89,19 @@ async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
     
     # (၁) Data လှမ်းယူပါ (Selenium မလိုတော့ပါ)
     try:
-        response = requests.get(DATA_API_URL, headers=API_HEADERS, timeout=10)
+        # --- (ပြင်ဆင်ပြီး) GET အစား POST ကို သုံးပါ ---
+        response = requests.post(DATA_API_URL, headers=API_HEADERS, timeout=10)
+        
+        if response.status_code == 405:
+            print(f"CRITICAL ERROR: API method ကို Server က လက်မခံပါ။ (405 Method Not Allowed)")
+            return
         if response.status_code != 200:
             print(f"Error fetching API: Status {response.status_code}")
             return
             
         data = response.json()
         
-        # --- (FIXED based on Screenshot) ---
+        # --- (JSON Logic - Response 157) ---
         if data.get("code") != 0 or "data" not in data or "list" not in data["data"]:
             raise Exception(f"API Response 'data' or 'list' key မတွေ့ပါ။ Msg: {data.get('msg')}")
             
@@ -109,7 +116,6 @@ async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
         if not latest_issue_id or not latest_result_num_str:
              raise Exception("API Response ထဲမှာ 'issueNumber' or 'number' မတွေ့ပါ။")
         
-        # (Wingo Rule: 0-4 = SMALL, 5-9 = BIG)
         try:
             num = int(latest_result_num_str)
             if 0 <= num <= 4:
@@ -117,18 +123,19 @@ async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
             elif 5 <= num <= 9:
                 latest_result_val = "big"
             else:
-                # (Violet/Special case တွေကို ကိုကို ကြိုက်သလို ထပ်ထည့်နိုင်)
-                latest_result_val = "unknown"
+                latest_result_val = "unknown" # (Violet/Special case)
         except Exception:
              raise Exception(f"Result 'number' ({latest_result_num_str}) က 'BIG'/'SMALL' တွက်လို့မရပါ။")
-        
-        # --- (FIX END) ---
+        # --- (JSON Logic ပြီး) ---
 
         # (၂) DB ထဲ သိမ်းပါ
         db.add_result(latest_issue_id, latest_result_val, latest_result_num_str)
         
+    except requests.exceptions.RequestException as e:
+        print(f"API Request (Network/Timeout) failed: {e}")
+        return
     except Exception as e:
-        print(f"API Request failed: {e}")
+        print(f"API Data Processing failed: {e}")
         return # Error တက်ရင် ခန့်မှန်းချက် မပို့တော့ဘူး
 
     # (၃) ခန့်မှန်းချက် တွက်ပါ
