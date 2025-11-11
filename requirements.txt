@@ -1,2 +1,3 @@
-python-telegram-bot
-apscheduler
+pymongo
+python-telegram-bot[job-queue]
+curl_cffi
