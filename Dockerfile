@@ -5,4 +5,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-CMD ["python", "ai_bot.py"]
+CMD ["python", "ai_bot_api.py"]
