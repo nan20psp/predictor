@@ -1,4 +1,3 @@
 pymongo
 python-telegram-bot[job-queue]
-selenium
-webdriver-manager
+requests
