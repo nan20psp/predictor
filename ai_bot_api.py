@@ -1,14 +1,12 @@
-# ai_bot_api.py
+# ai_bot_api.py (ပြင်ဆင်ပြီး)
 
 import asyncio, os, re, random, json
 from datetime import datetime
 from telegram import Update, Bot, ChatMember
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# (အသစ်) Selenium မလိုတော့ပါ။ ရိုးရိုး requests ပဲ လိုပါမယ်။
 import requests 
 
-# Database module (AI Bot အတွက်) ကို import လုပ်ပါ
 try:
     import ai_database as db
 except ImportError:
@@ -30,13 +28,11 @@ except Exception as e:
     exit()
 
 # --- Global Settings ---
-# (ပြင်ဆင်ပြီး) ကိုကို ရှာတွေ့ထားတဲ့ API Link အသစ်
-DATA_API_URL = "https://api.bigwinqaz.com/api/webapi/GetNoaverageEmerdList" 
+DATA_API_URL = "https://api.bigwinqaz.com/api/webapi/GetNoaverageEmerdList" #
 API_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
     "Referer": "https://www.bigwingame.bet/" 
 }
-# --- (ပြီး) ---
 
 
 # --- Group Management (မပြောင်းပါ) ---
@@ -63,7 +59,7 @@ async def on_left_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE
 # --- (အဓိက) Prediction Logic (မပြောင်းပါ) ---
 def get_prediction(last_results):
     if len(last_results) < 4:
-        return "⏳ Data စုဆောင်းနေပါသည်။" 
+        return "⏳ Data စုဆောင်းနေပါသည်။" #
 
     active_pattern = db.get_active_pattern() 
     last_4 = last_results[-4:]
@@ -98,27 +94,38 @@ async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
             
         data = response.json()
         
-        # (TODO: ကိုကို... ဒီ JSON format က အရေးကြီးဆုံးပါ)
-        # ဘေဘီက `data.json` ကို မှန်းရေးထားတာပါ၊ ကိုကို့ API link အသစ်နဲ့ မှန်ချင်မှ မှန်ပါမယ်
-        
-        # ဥပမာ API က ဒီလို ပုံစံလာခဲ့ရင်:
-        # { "data": [ {"issue": "20251111002", "result": "Small", "number": "3"},
-        #            {"issue": "20251111001", "result": "Big", "number": "8"} ] }
-        
-        if "data" not in data or not data["data"]:
-            raise Exception("API Response မှာ 'data' list မတွေ့ပါ။")
+        # --- (FIXED based on Screenshot) ---
+        if data.get("code") != 0 or "data" not in data or "list" not in data["data"]:
+            raise Exception(f"API Response 'data' or 'list' key မတွေ့ပါ။ Msg: {data.get('msg')}")
             
-        latest_result_obj = data["data"][0] # List ထဲက ပထမဆုံး (နောက်ဆုံး) result ကို ယူ
+        if not data["data"]["list"]:
+            raise Exception("API Response 'list' is empty.")
+            
+        latest_result_obj = data["data"]["list"][0] # List ထဲက ပထမဆုံး (နောက်ဆုံး) result ကို ယူ
         
-        latest_issue_id = latest_result_obj.get("issue")
-        latest_result_val = latest_result_obj.get("result", "small") # "Small" or "Big"
-        latest_result_num = latest_result_obj.get("number", "?") # "5" or "8"
+        latest_issue_id = latest_result_obj.get("issueNumber") #
+        latest_result_num_str = latest_result_obj.get("number") # "6"
 
-        if not latest_issue_id:
-             raise Exception("API Response ထဲမှာ 'issue' (ID) မတွေ့ပါ။")
+        if not latest_issue_id or not latest_result_num_str:
+             raise Exception("API Response ထဲမှာ 'issueNumber' or 'number' မတွေ့ပါ။")
+        
+        # (Wingo Rule: 0-4 = SMALL, 5-9 = BIG)
+        try:
+            num = int(latest_result_num_str)
+            if 0 <= num <= 4:
+                latest_result_val = "small"
+            elif 5 <= num <= 9:
+                latest_result_val = "big"
+            else:
+                # (Violet/Special case တွေကို ကိုကို ကြိုက်သလို ထပ်ထည့်နိုင်)
+                latest_result_val = "unknown"
+        except Exception:
+             raise Exception(f"Result 'number' ({latest_result_num_str}) က 'BIG'/'SMALL' တွက်လို့မရပါ။")
+        
+        # --- (FIX END) ---
 
         # (၂) DB ထဲ သိမ်းပါ
-        db.add_result(latest_issue_id, latest_result_val, latest_result_num)
+        db.add_result(latest_issue_id, latest_result_val, latest_result_num_str)
         
     except Exception as e:
         print(f"API Request failed: {e}")
@@ -139,7 +146,7 @@ async def wingo_job(context: ContextTypes.DEFAULT_TYPE):
     broadcast_msg = (
         f"--- **1 MIN WINGO** ---\n"
         f"Pattern Set: **{active_pattern}**\n"
-        f"Last Result: `{latest_issue_id}` -> **{latest_result_val.upper()} ({latest_result_num})**\n\n"
+        f"Last Result: `{latest_issue_id}` -> **{latest_result_val.upper()} ({latest_result_num_str})**\n\n"
         f"**NEXT RESULT ♻️ {prediction}**"
     )
     
