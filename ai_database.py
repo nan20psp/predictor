@@ -12,7 +12,6 @@ try:
         exit()
         
     client = pymongo.MongoClient(MONGO_URL)
-    # --- (DB အသစ် သီးသန့် သုံးပါ) ---
     db = client["ai_pattern_db"] 
     
     wingo_results_collection = db["wingo_results"] # Wingo Data တွေ သိမ်းရန်
@@ -26,7 +25,6 @@ except Exception as e:
 
 # --- Group Management ---
 def add_group(chat_id, group_name):
-    """Bot ဝင်ထားသော Group ID ကို DB ထဲ မှတ်ထားပါ။"""
     if not client: return
     active_groups_collection.update_one(
         {"_id": chat_id},
@@ -35,39 +33,38 @@ def add_group(chat_id, group_name):
     )
 
 def remove_group(chat_id):
-    """Bot ထွက်သွားသော Group ID ကို DB မှ ဖျက်ပါ။"""
     if not client: return
     active_groups_collection.delete_one({"_id": chat_id})
 
 def get_all_groups():
-    """Bot ဝင်ထားသော Group ID များအားလုံးကို ယူပါ။"""
     if not client: return []
     return [doc["_id"] for doc in active_groups_collection.find({}, {"_id": 1})]
 
 # --- Result & Pattern Functions ---
-def add_result(issue_id, result_value):
-    """Wingo Result အသစ် ထည့်ပါ။ (ဥပမာ: "SMALL")"""
+def add_result(issue_id, result_value, result_number):
+    """Wingo Result အသစ် ထည့်ပါ။"""
     if not client: return
     check = wingo_results_collection.find_one({"_id": issue_id})
     if not check:
         wingo_results_collection.insert_one({
             "_id": issue_id,
-            "result": result_value.lower(), # "SMALL"
+            "result_val": result_value.lower(), # "small"
+            "result_num": result_number, # "5"
             "timestamp": datetime.now()
         })
-        print(f"New Result Added: {issue_id} -> {result_value}")
+        print(f"New Result Added: {issue_id} -> {result_value} ({result_number})")
         return True
     return False
 
 def get_last_results(count=10):
     """ခန့်မှန်း ချက် တွက်ရန် နောက်ဆုံး Result (10) ခုကို ယူပါ။"""
     if not client: return []
-    cursor = wingo_results_collection.find({}, {"result": 1, "_id": 0}).sort("_id", -1).limit(count)
-    results = [doc["result"] for doc in cursor]
+    # (ပြင်ဆင်ပြီး) "small" or "big" ကိုပဲ ယူပါ
+    cursor = wingo_results_collection.find({}, {"result_val": 1, "_id": 0}).sort("_id", -1).limit(count)
+    results = [doc["result_val"] for doc in cursor]
     return results[::-1] # Reverse the list [oldest...newest]
 
 def set_active_pattern(pattern_number):
-    """Bot Setting မှာ "Pattern 1" or "Pattern 2" ကို သတ်မှတ်ပါ။"""
     if not client: return
     bot_settings_collection.update_one(
         {"_id": "main_config"},
@@ -76,8 +73,7 @@ def set_active_pattern(pattern_number):
     )
 
 def get_active_pattern():
-    """Bot Setting ကို ပြန်ယူပါ။"""
-    if not client: return 1 # Default Pattern 1
+    if not client: return 1 
     config = bot_settings_collection.find_one({"_id": "main_config"})
     if config:
         return config.get("active_pattern", 1)
