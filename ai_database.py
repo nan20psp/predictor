@@ -49,7 +49,7 @@ def add_result(issue_id, result_value, result_number):
         wingo_results_collection.insert_one({
             "_id": issue_id,
             "result_val": result_value.lower(), # "small"
-            "result_num": result_number, # "5"
+            "result_num": result_number, # "6"
             "timestamp": datetime.now()
         })
         print(f"New Result Added: {issue_id} -> {result_value} ({result_number})")
